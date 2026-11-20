@@ -1,0 +1,7 @@
+Deinen ComfyUI-Workflow im API-Format als API.json in diesen Ordner legen.
+
+ComfyUI: Workflow-Menü -> Export -> Save (API Format) (Menütext variiert je nach Version).
+Keine UI-Workflow-JSON (mit nodes/links-Arrays) verwenden.
+Im AssetFoundry-Tab "Workflow" die Datei analysieren und gegebenenfalls Image-/Save-Node wählen.
+Der Workflow braucht einen Bildlade-Node (typischerweise LoadImage) und einen GLB-Speicher-Node
+(typischerweise SaveGLB). Das Ergebnis muss in der ComfyUI-History als 3d-Datei erscheinen.
