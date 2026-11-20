@@ -1,0 +1,10 @@
+* text=auto
+*.bat text eol=crlf
+*.py text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+*.png binary
+*.glb binary
+*.zip binary

@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 cd /d "%~dp0"
 chcp 65001 >nul
 set "PYTHONUTF8=1"
@@ -8,30 +8,35 @@ set "PY=py -3"
 if errorlevel 1 set "PY=python"
 %PY% --version >nul 2>&1
 if errorlevel 1 (
- echo [FEHLER] Python 3.10+ nicht gefunden.
- echo Bitte Python fuer Windows installieren: https://www.python.org/downloads/windows/
+ echo [FEHLER] Python 3.10+ nicht gefunden. https://www.python.org/downloads/
+ pause
+ exit /b 1
+)
+%PY% -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)"
+if errorlevel 1 (
+ echo [FEHLER] AssetFoundry benoetigt Python 3.10 oder neuer.
  pause
  exit /b 1
 )
 if not exist ".venv\Scripts\python.exe" (
- echo Erstelle isolierte Python-Umgebung ...
+ echo [AssetFoundry] Virtuelle Python-Umgebung wird erstellt ...
  %PY% -m venv ".venv"
  if errorlevel 1 goto :fail
 )
-if not exist ".venv\.assetfoundry-installed" (
- echo Installiere Monitoring und PNG-Vorschau ...
- ".venv\Scripts\python.exe" -m pip install -r requirements.txt
- if errorlevel 1 (
-  echo [HINWEIS] Pakete konnten nicht installiert werden. Start mit Standardbibliothek.
- ) else (
-  type nul > ".venv\.assetfoundry-installed"
- )
+if not exist ".venv\.extras-attempted" (
+ echo [AssetFoundry] Installiere optionale Monitoring-/Vorschau-Pakete ...
+ ".venv\Scripts\python.exe" -m pip install --disable-pip-version-check --timeout 8 --retries 1 -r requirements.txt
+ if errorlevel 1 echo [HINWEIS] Extras nicht verfuegbar. Die Oberflaeche startet trotzdem lokal.
+ type nul > ".venv\.extras-attempted"
 )
+echo.
+echo [AssetFoundry] Starte lokales App-Fenster ...
+echo [AssetFoundry] Zum Beenden im Fenster "Anwendung beenden" waehlen.
 ".venv\Scripts\python.exe" -m assetfoundry
 if errorlevel 1 goto :fail
 exit /b 0
 :fail
- echo.
- echo AssetFoundry konnte nicht normal starten. Siehe Fehlermeldung oben.
- pause
- exit /b 1
+echo.
+echo [FEHLER] Start fehlgeschlagen. Fehlermeldungen oben pruefen.
+pause
+exit /b 1

@@ -1,129 +1,115 @@
-# AssetFoundry 1.0.0
+# AssetFoundry 1.1.0
 
-**Local 3D Asset Pipeline** – eigenständige Windows-Anwendung zur rekursiven **PNG → GLB**-Batch-Generierung über eine **lokal laufende ComfyUI-Instanz**.
+**Local 3D Asset Pipeline** · Eigenständige, modulare Windows-Anwendung mit modernem, lokalem Desktop-Dashboard für **PNG → GLB** über **ComfyUI**.
 
-**Status:** ausführbares Testpaket. Scanner, Dateischutz, Batch-Steuerung, Wiederaufnahme, HTTP-API und Oberfläche sind implementiert und offline getestet. Ein echter 3D-/GPU-Lauf wurde **nicht** durchgeführt, weil der konkrete ComfyUI-Workflow und die ComfyUI-Installation des Nutzers nicht vorliegen. Die Praxisprüfung mit dem eigenen API-Workflow ist der verbleibende Integrationstest.
+**Oberfläche:** Dashboard · Asset-Bibliothek · Workflow · Systemmonitor · Protokoll
 
-## Start in 5 Schritten
+![AssetFoundry Dashboard (Testdaten)](docs/preview-dashboard.png)
 
-1. ZIP an einen beliebigen Ort auf Windows entpacken, z. B. `C:\AssetFoundry`.
-2. ComfyUI lokal starten und sicherstellen, dass es erreichbar ist (typisch `http://127.0.0.1:8188`). Die 3D-Modelle und benötigten Custom Nodes müssen **bereits in ComfyUI installiert und funktionstüchtig** sein.
-3. Den funktionierenden ComfyUI-Bild-zu-3D-Workflow im **API-Format** exportieren und unter **`workflows\API.json`** speichern. Falls der Dateiname anders lautet, kann er im Tab **Workflow** ausgewählt werden. Es ist **keine Cloud-API** erforderlich.
-4. **`Start.bat`** doppelklicken. Beim ersten Start erzeugt es eine isolierte `.venv` und installiert `psutil` (CPU/RAM-Monitoring) und `Pillow` (Bildvorschau). Python 3.10+ mit Tkinter wird vorausgesetzt. Für die einmalige Installation dieser optionalen Pakete ist gegebenenfalls Internet nötig; danach ist der eigentliche Betrieb lokal. Die App kann ohne diese Extras starten, aber mit eingeschränkter Überwachung/Vorschau.
-5. Im Tab **Workflow** auf **Analysieren** klicken, bei Bedarf Eingangs-/Export-Node wählen, **Workflow-Zuordnung speichern**. Im Tab **Leistung & Einstellungen** ComfyUI prüfen und 5-Sekunden-Cooldown / Lastgrenzen einstellen. Im Tab **Assets & Batch** Hauptordner auswählen, PNGs prüfen, Assets auswählen und Verarbeitung starten.
+*Oberflächenvorschau mit synthetischen Testdaten, kein echter ComfyUI-Generierungslauf.*
 
-### Der erste praktische Test
+> **Status:** Testversion. Scanner, Auftragssteuerung, HTTP-Verbindung, Recovery, Dateischutz und lokale Dashboard-API sind offline getestet. **Ein realer 3D-Lauf auf deiner GPU steht noch aus**, da dein eigener ComfyUI-API-Workflow und die Modelle nicht im Repository liegen.
 
-Lege beispielsweise an:
+## Schnellstart auf Windows
+
+1. [Python 3.10 oder neuer](https://www.python.org/downloads/) installieren (im PATH oder via `py`).
+2. ComfyUI mit deinem funktionierenden **Bild → 3D → SaveGLB**-Workflow und den notwendigen Modellen/Custom Nodes starten (gewöhnlich `http://127.0.0.1:8188`).
+3. In ComfyUI **API-Format** exportieren (nicht den normalen UI-Workflow) und als **`workflows\API.json`** ablegen.
+4. **`Start.bat` doppelklicken.** AssetFoundry startet seinen lokalen Webserver und öffnet unter Windows vorzugsweise ein **separates Edge-App-Fenster**, andernfalls deinen Browser. **Internet, CDN, Frontend-Build und Cloud sind für den Betrieb nicht nötig.**
+5. In **Workflow** den Bild- und GLB-Node prüfen und speichern. Unter **System & Leistung** ComfyUI-Verbindung testen, Cooldown und Grenzen einstellen. Unter **Asset-Bibliothek** einen Ordner wählen, ein PNG markieren, **Batch starten**.
+
+Für den ersten Test **nur ein einzelnes PNG** ohne vorhandene GLB auswählen. Das Ergebnis muss im selben Unterordner als `Bildname.glb` erscheinen. Bei mehreren Save-/Image-Nodes die richtige Zuordnung im Workflow-Tab auswählen.
+
+**Wichtig:** Browser-App-Fenster und Hintergrundprozess laufen lokal. Um den Server zu beenden, im linken Menü **Anwendung beenden** wählen (oder im Start-Konsolenfenster **Strg+C**). Bei aktiver Generierung zuerst **Pause** wählen; der laufende ComfyUI-Auftrag wird nicht abgebrochen.
+
+### Beispielverzeichnis
 
 ```text
-D:\3D-Assets\
-    Baum.png
-    Baum.glb         <- bereits vorhanden: standardmässig übersprungen
-    Natur\
-        Farn.png     <- wird generiert
-        Felsen\
-            Stein.png <- wird generiert
+D:\Assets\
+├── Baum.png
+├── Baum.glb              ← bereits vorhanden: standardmässig überspringen
+├── Natur\
+│   └── Farn.png          ← generieren: Natur\Farn.glb
+└── Gebäude\
+    └── Haus.png          ← generieren: Gebäude\Haus.glb
 ```
 
-Für den Anfang am besten **ein einzelnes PNG ohne GLB** auswählen. ComfyUI soll es verarbeiten und genau **eine gültige GLB-Datei** produzieren. AssetFoundry lädt die GLB über die lokale API ab und speichert sie als `Farn.glb` im Bildordner.
+## Was die Anwendung kann
 
-**Export aus ComfyUI:** Benötigt wird das **API-Prompt-JSON**, nicht das normale UI-Workflow-JSON mit `nodes` und `links`-Listen. Der Export-Node muss die GLB tatsächlich **speichern** (typisch `SaveGLB` oder `Save3DAdvanced`). Ein reiner 3D-Vorschau-Node reicht nicht. Der Workflow muss zum ausgewählten PNG-Eingang verdrahtet sein und genau **ein GLB pro Auftrag** im gewählten Export-Node ausgeben. Der Batch ändert nur Dateiname des Bild-Eingangs und einen vorhandenen `filename_prefix`-Parameter; andere Modellparameter kommen aus deinem API-JSON. Bei mehreren Bild- oder Export-Nodes lassen sie sich im Tab Workflow auswählen; notfalls den Node-ID-Text eingeben.
+- Rekursiver PNG-Scanner (`.png`, `.PNG`), eindeutige Zielzuordnung **gleicher Ordner + Basisname + GLB**.
+- Schnelle, such- und filterbare **Asset-Bibliothek mit Auswahl und PNG-Vorschau**.
+- Batch-Verarbeitung über die **lokale ComfyUI-API**, mit konfigurierbaren Bild-/Export-Nodes und GLB-Zuordnung aus der History.
+- Vorhandene GLB **überspringen** oder nur für ausdrücklich ausgewählte Assets **nach Rückfrage überschreiben**.
+- Vor dem Dateiaustausch Prüfung des GLB-Containers, optionale Backups, atomarer Austausch bzw. exklusives Publish.
+- Persistente ComfyUI-Auftrags-IDs, Wiederaufnahme nach Neustart, Schutz vor versehentlicher Doppelgenerierung, Soft-Pause.
+- Live-Anzeige CPU/RAM (`psutil`) und NVIDIA-GPU/VRAM (`nvidia-smi`) sowie Lastgrenzen für **neue** Jobs.
+- **Cooldown (standardmässig 5 Sekunden)**, maximaler Ressourcen-Wartezeitraum, Job-Timeout, Polling, GPU-Monitor-Index.
+- HTML/CSS/JavaScript im Projekt enthalten – **kein Node.js, CDN, Qt oder Cloud-Dienst**.
 
-## Dateiregeln
+### Was die Leistungssteuerung nicht macht
 
-- Es werden rekursiv **nur `.png`/`.PNG`** gescannt, Unterordner bleiben erhalten.
-- Pro Bild: **gleicher Ordner + gleicher Basisname + `.glb`**.
-- Bereits vorhandene GLBs werden erkannt; der Batch fragt beim Start, ob **ausgewählte** bestehende GLBs überschrieben werden dürfen. **Nein** überspringt sie.
-- Übertragene Ergebnisse werden zunächst im **Zielordner als `.part`** gespeichert, auf glTF-2.0-Grundstruktur geprüft und erst danach veröffentlicht.
-- Standardmässig wird bei Überschreiben ein Backup nach **`<Assetordner>\.assetfoundry\backups\...`** erstellt. Falls Download/Validierung scheitern, bleibt die Original-GLB unberührt.
-- Ungültige existierende GLBs werden angezeigt und ohne explizit bestätigtes Überschreiben ebenfalls nicht angetastet.
-- Dateinamenskollisionen und symbolische Links werden gesperrt.
-- Der Scanner ignoriert den eigenen `.assetfoundry`-Ordner.
-- Bildsignatur wird vor dem Upload geprüft, maximales PNG 100 MiB. GLB-Download maximal 4 GiB.
-- **GLB-Validierung ist eine strukturelle Prüfung, keine Zusicherung visueller Modellqualität**. Ein echtes Testmodell in einer 3D-Anwendung öffnen, um Mesh, Textur, Orientierung und Massstab zu prüfen.
+Grenzwerte halten den **Start weiterer Jobs** zurück. Sie können **nicht** die Rechenleistung einer bereits laufenden ComfyUI-Instanz hart deckeln oder deren GPU wechseln. Der GPU-Index steuert nur, welche NVIDIA-Karte überwacht wird. Nicht verfügbare GPU-Werte werden als „–“ angezeigt; daraus werden keine fiktiven Grenzwerte abgeleitet.
 
-## Leistung & Einstellungen
+## Datensicherheit und Recovery
 
-Die Anwendung zeigt nach Möglichkeit CPU, RAM, GPU-Auslastung und VRAM (Belegung und Prozent). CPU/RAM via `psutil`, GPU/VRAM via lokalem **NVIDIA-SMI**. Fehlen diese Daten (z. B. AMD/Intel, fehlendes `nvidia-smi`), wird **„–“** angezeigt und der entsprechende Grenzwert wird nicht erzwungen; es werden keine Werte erfunden.
+- Server bindet nur an **127.0.0.1** mit zufälligem Port und einem **zufälligen Sitzungstoken**. API-Aufrufe brauchen den Token und Browser-POSTs sind gegen fremde Origins abgesichert. Keine Cloud-Komponente, keine externe Telemetrie.
+- GLB wird erst als `.part` im Zielordner gespeichert, auf glTF-2.0-Struktur geprüft und danach veröffentlicht. Bei fehlerhaftem Download bleibt die alte GLB erhalten.
+- Backups beim Ersetzen unter `.assetfoundry/backups`; Jobs unter `.assetfoundry/jobs.json`; ordnerbezogener Lock verhindert parallele Läufe.
+- Unklare ComfyUI-Aufträge werden **nicht blind erneut eingereicht**. Bei Fehlern erst im Protokoll und in ComfyUI prüfen, dann ggf. ausgewählte Jobs ausdrücklich zurücksetzen.
+- PNG-Signatur und Dateigrösse werden geprüft; Symlinks und Namenskollisionen gesperrt.
+- **Keine visuelle Qualitätsbewertung**: GLB in Blender/Viewer öffnen und Geometrie, Texturen, Massstab und Orientierung kontrollieren.
 
-| Einstellung | Vorgabe | Wirkung |
-|---|---:|---|
-| Cooldown zwischen erfolgreichen Generierungen | **5 s** | Pause vor dem nächsten Asset |
-| CPU-Schwelle | 90 % | Start neuer Aufgaben bei hoher CPU-Last zurückhalten |
-| RAM-Schwelle | 90 % | Neue Jobs bei hoher RAM-Belegung zurückhalten |
-| GPU-Schwelle | 95 % | Neue Jobs bei hoher NVIDIA-GPU-Auslastung zurückhalten |
-| VRAM-Schwelle | 95 % | Neue Jobs bei hoher VRAM-Belegung zurückhalten |
-| GPU-Index | 0 | **Nur Monitoring** dieser NVIDIA-GPU |
-| Maximale Wartezeit wegen hoher Last | 1800 s | Danach keine weiteren Jobs starten, Diagnose anzeigen |
-| Maximale Wartezeit pro ComfyUI-Auftrag | 3600 s | Auftrag nicht doppelt senden; später fortsetzen |
-| Polling-Intervall | 3 s | Statusabfragen bei ComfyUI |
-| Vor Überschreiben Backup | Aktiv | Alte GLB sichern |
+## Entwicklung, Tests und GitHub
 
-**Wichtig: Die Lastgrenzen gelten nur *vor* dem Einreichen des nächsten Auftrags.** ComfyUI arbeitet unabhängig in seinem eigenen Prozess. AssetFoundry kann weder den laufenden ComfyUI-Prozess auf einen bestimmten CPU-/GPU-Prozentsatz deckeln noch ohne Neustart dessen GPU wechseln. Für harte GPU-/VRAM-Konfigurationen die Startparameter und Einstellungen von ComfyUI selbst nutzen. Die angegebene GPU-Auswahl in AssetFoundry wählt ausschliesslich das zu **überwachende** Gerät.
+Projekt klonen oder ZIP entpacken, danach:
 
-Verbindung: standardmässig nur `127.0.0.1:8188`. Andere lokale Ports sind möglich; entfernte Server werden in Version 1.0 bewusst nicht zugelassen.
+```powershell
+python -m unittest discover -s tests -v
+python -m compileall -q assetfoundry
+python -m assetfoundry
+```
 
-## Abbrüche und Neustart
+Optional mit installierbarem Paket:
 
-- **Pause** stoppt weitere Uploads/Einreichungen zwischen den Assets; ein laufender ComfyUI-Auftrag wird **nicht abgebrochen** und die App versucht weiterhin, ihn abzuholen.
-- Wird AssetFoundry während der Berechnung beendet, kann ComfyUI weiterlaufen. Bei erneutem Start denselben Ordner wählen und das Asset erneut markieren. AssetFoundry verwendet zunächst die gespeicherte **prompt_id** und sucht in `/history` und `/queue`; sie startet **nicht blind** eine zweite Generierung.
-- Wenn eine Einreichung/Abfrage unklar ist, bleibt der Status **unklar**. In ComfyUI prüfen und erst dann bei Bedarf über **Fehler/Job zurücksetzen…** erneut freigeben.
-- Wenn das PNG seit Auftragserstellung verändert wurde, wird der alte Auftrag nicht stillschweigend als neues Asset veröffentlicht.
-- Job-IDs und Status liegen im Hauptordner unter **`.assetfoundry\jobs.json`**. Diese Datei bei einem laufenden Projekt **nicht löschen**. Beschädigte Zustandsdateien werden nicht automatisch überschrieben.
-- Ein Betriebssystem-Lock unter `.assetfoundry\batch.lock` verhindert parallele Batch-Verarbeitung desselben Hauptordners aus mehreren Fenstern.
+```powershell
+python -m pip install -e ".[extras]"
+assetfoundry
+```
 
-## Modulare Projektstruktur
+Das Repository enthält `.gitignore`, `.gitattributes`, `pyproject.toml`, GitHub Actions (`.github/workflows/ci.yml`), Dokumentation und Offline-Tests. Persönliche Einstellungen, Jobs, GLB-Dateien und dein Workflow `workflows/API.json` werden **nicht** mitcommittet.
+
+**Kein Lizenzvertrag ist vorgegeben:** Entscheide vor einer Veröffentlichung, ob das Repository privat bleiben soll und welche Lizenz gegebenenfalls gewünscht ist. Die fehlende Lizenzdatei erteilt keine allgemeinen Nutzungsrechte an Dritte.
+
+Weitere technische Details: [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md) und [docs/SECURITY.md](docs/SECURITY.md).
+
+## Projektstruktur
 
 ```text
 AssetFoundry/
-├─ Start.bat                      Windows-Start, verwaltet .venv
-├─ Tests_Starten.bat              Offline-Tests unter Windows
-├─ requirements.txt               optionale Extras: psutil, Pillow
-├─ README.md                      diese Anleitung
-├─ assetfoundry/
-│  ├─ __main__.py                  App-Einstieg
-│  ├─ ui.py                        Tkinter-Oberfläche und Event-Queue
-│  ├─ models.py                    Konfiguration + Domain-Modelle
-│  ├─ assets.py                    rekursiver PNG-Scanner
-│  ├─ state.py                     Job-Store + Folder-Lock
-│  ├─ workflow.py                  ComfyUI-API-JSON-Mapping
-│  ├─ comfy.py                     lokaler HTTP-Client
-│  ├─ resources.py                 Metriken + Drosselung
-│  ├─ output.py                    GLB-Prüfung + atomarer Export
-│  └─ batch.py                     Orchestrierung, Recovery, Soft-Pause
-├─ workflows/
-│  ├─ HIER_API_JSON_ABLEGEN.txt
-│  └─ API.json                     <--- HIER eigenen Workflow ablegen
-└─ tests/
-   └─ test_assetfoundry.py        Scanner, Workflow, State, HTTP, Output, Resource, Batch
+├── Start.bat                    Start in separatem Edge-App-Fenster / Browser
+├── Extras_Installieren.bat      Optionale psutil/Pillow Installation
+├── Tests_Starten.bat            Offline-Tests
+├── pyproject.toml               Installations-/Paket-Metadaten
+├── .github/workflows/ci.yml     CI (Python 3.10 / 3.12 / 3.13)
+├── assetfoundry/
+│   ├── __main__.py              Startpunkt
+│   ├── dashboard.py             UI-unabhängiger Dashboard-Controller
+│   ├── webapp.py                Loopback-Server und geschützte lokale JSON-API
+│   ├── frontend/
+│   │   ├── index.html           Dashboard, Asset-Bibliothek, Workflow, System, Logs
+│   │   ├── styles.css           Modernes responsives Dark Theme
+│   │   └── app.js               Browser-Interaktionen ohne Framework
+│   ├── assets.py                Scanner
+│   ├── batch.py                 Batch-Engine und Recovery
+│   ├── comfy.py                 ComfyUI-HTTP-Client
+│   ├── models.py                Modelle / Einstellungen
+│   ├── output.py                GLB-Prüfung und Safe-Publish
+│   ├── resources.py             CPU/RAM/NVIDIA-Monitoring
+│   ├── state.py                 Job-Store / Lock
+│   └── workflow.py              API-Workflow-Adapter
+├── workflows/
+│   ├── HIER_API_JSON_ABLEGEN.txt
+│   └── API.json                 Dein Workflow (bewusst nicht im ZIP/Git)
+├── tests/                       Offline-Tests, inkl. API-Sicherheit
+└── docs/                        Architektur & Sicherheit
 ```
-
-Die Module sind eigenständig. **ComfyUI ist nur ein Backend**, die Dateiverwaltung und Batch-Engine enthalten keine TRELLIS.2-/Pixal3D-spezifische Logik. Bei einem neuen Modell muss normalerweise lediglich die Workflow-Datei geändert werden.
-
-## Tests
-
-Ohne ComfyUI und ohne GPU:
-
-```powershell
-cd C:\AssetFoundry
-python -m unittest discover -s tests -v
-```
-
-Oder `Tests_Starten.bat` doppelklicken. Die Tests benutzen einen lokalen simulierten HTTP-Server, erzeugen eine kleine echte GLB-Testdatei und prüfen den kompletten Upload→Prompt→History→GLB-Download→Zieldatei-Prozess. Sie greifen nicht auf Cloud-Dienste zu.
-
-**Echte Integration:** Windows-Tkinter-Fenster, externe NVIDIA-Treiber/`nvidia-smi` und der konkrete 3D-ComfyUI-Workflow müssen auf deinem Windows-PC geprüft werden. Modellqualität, Generationstempo und tatsächliche GPU-/RAM-Peaks hängen vom installierten Workflow ab.
-
-## Daten & Diagnose
-
-- Allgemeine Einstellungen: `%LOCALAPPDATA%\AssetFoundry\settings.json`
-- Protokoll: `%LOCALAPPDATA%\AssetFoundry\activity.log`
-- Status und Backups: `<Hauptordner>\.assetfoundry\...`
-- PNGs werden ausschliesslich an die konfigurierte **lokale** ComfyUI-Instanz übertragen; keine Cloud-Tokens oder Meshy-Anbindung.
-- Bei einem Bug: Protokoll, anonymisierte `jobs.json` und den *API*-Workflow auf Fehler prüfen. Beachten: Dateinamen und lokale Pfade können personenbezogene Informationen enthalten.
-
-### Referenzen (ComfyUI API)
-
-- https://docs.comfy.org/development/comfyui-server/comms_routes
-- https://github.com/Comfy-Org/ComfyUI/blob/master/script_examples/websockets_api_example.py
-- https://github.com/Comfy-Org/embedded-docs/blob/main/comfyui_embedded_docs/docs/SaveGLB/en.md

@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local user data, generated files and private settings
+workflows/API.json
+workflows/api.json
+workflows/workflow_api.json
+*.glb
+*.part
+.assetfoundry/
+*.log
+settings.json
+jobs.json
+
+# Keep test fixtures in tests if they are added intentionally
+!tests/fixtures/*.glb

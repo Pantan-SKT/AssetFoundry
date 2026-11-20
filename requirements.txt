@@ -1,2 +1,3 @@
+# Optional: CPU/RAM metrics and efficient thumbnails; UI + backend work without these.
 psutil>=5.9,<8
 Pillow>=10,<13

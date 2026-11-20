@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "assetfoundry-local"
+version = "1.1.0"
+description = "Local PNG-to-GLB production pipeline with a secure browser-based desktop UI and ComfyUI backend"
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["comfyui", "3d", "glb", "batch", "desktop", "offline"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: Microsoft :: Windows",
+]
+
+[project.optional-dependencies]
+extras = ["psutil>=5.9,<8", "Pillow>=10,<13"]
+
+[project.scripts]
+assetfoundry = "assetfoundry.webapp:run"
+
+[tool.setuptools.packages.find]
+include = ["assetfoundry*"]
+
+[tool.setuptools.package-data]
+assetfoundry = ["frontend/*.html", "frontend/*.css", "frontend/*.js"]
