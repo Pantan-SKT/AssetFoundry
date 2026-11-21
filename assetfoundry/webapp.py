@@ -43,11 +43,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         # Loopback logs can contain URL tokens: never echo them.
         return
 
-    def _headers(self, content_type, length, code=200, cache=False):
+    def _headers(self, content_type, length, code=200, cache=False, download=None):
         self.send_response(code)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(length))
         self.send_header('X-Content-Type-Options', 'nosniff')
+        if download:
+            self.send_header('Content-Disposition', f'attachment; filename="{download}"')
         self.send_header('Referrer-Policy', 'no-referrer')
         self.send_header('Cache-Control', 'public, max-age=3600' if cache else 'no-store')
         self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
@@ -56,12 +58,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
         self.end_headers()
 
-    def _send(self, body, mime='application/json; charset=utf-8', code=200, cache=False):
+    def _send(self, body, mime='application/json; charset=utf-8', code=200, cache=False, download=None):
         if isinstance(body, (dict, list)):
             body = json.dumps(body, ensure_ascii=False, allow_nan=False).encode('utf-8')
         elif isinstance(body, str):
             body = body.encode('utf-8')
-        self._headers(mime, len(body), code, cache)
+        self._headers(mime, len(body), code, cache, download=download)
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
@@ -86,8 +88,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if query.get('token', [''])[0] != self.server.auth_token:
                 return self._fail('Nicht autorisiert.', 403)
             return self._static('index.html')
-        if p in ('/static/app.js', '/static/styles.css'):
-            return self._static(p.rsplit('/', 1)[-1])
+        static_files = {'/static/app.js': 'app.js', '/static/i18n.js': 'i18n.js',
+                        '/static/styles.css': 'styles.css',
+                        '/static/locales/de.json': 'locales/de.json',
+                        '/static/locales/en.json': 'locales/en.json'}
+        if p in static_files:
+            return self._static(static_files[p])
         if not p.startswith('/api/'):
             return self._fail('Nicht gefunden.', 404)
         if not self._authorized() or not self._same_origin():
@@ -101,6 +107,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if p == '/api/workflow':
                 path = q.get('path', [''])[0] or c.settings.workflow_path
                 return self._send({'ok': True, **c.inspect_workflow(path)})
+            if p == '/api/thumbnail':
+                body, mime = c.thumbnail(q.get('rel', [''])[0])
+                return self._send(body, mime)
             if p == '/api/preview':
                 body, mime = c.preview(q.get('rel', [''])[0])
                 return self._send(body, mime)
@@ -112,7 +121,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _static(self, name):
         mime = {'index.html': 'text/html; charset=utf-8', 'app.js': 'text/javascript; charset=utf-8',
-                'styles.css': 'text/css; charset=utf-8'}
+                'i18n.js': 'text/javascript; charset=utf-8',
+                'styles.css': 'text/css; charset=utf-8',
+                'locales/de.json': 'application/json; charset=utf-8',
+                'locales/en.json': 'application/json; charset=utf-8'}
         try:
             data = (FRONTEND / name).read_bytes()
             return self._send(data, mime[name], cache=name != 'index.html')
@@ -148,6 +160,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 result = c.select(data.get('mode'), data.get('q', ''), data.get('filter', 'all'))
             elif p == '/api/settings':
                 result = c.update_settings(data)
+            elif p == '/api/language':
+                result = c.update_language(data.get('language'))
             elif p == '/api/workflow':
                 result = c.save_workflow(data)
             elif p == '/api/ping':
@@ -158,6 +172,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 result = c.pause()
             elif p == '/api/reset':
                 result = c.reset_selected()
+            elif p == '/api/diagnostics':
+                if not isinstance(data.get('include_paths', False), bool):
+                    raise ValueError('Ungültige Diagnose-Option.')
+                body = c.diagnostics(include_paths=data.get('include_paths', False))
+                return self._send(body, 'application/zip', download='AssetFoundry-Diagnose-' + time.strftime('%Y%m%d-%H%M%S') + '.zip')
             elif p == '/api/quit':
                 if c.running:
                     raise RuntimeError('Laufender Batch: zuerst pausieren und abschliessen lassen.')
@@ -170,8 +189,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except (ValueError, RuntimeError, TypeError, OSError, KeyError) as exc:
             return self._fail(exc)
 
-    @staticmethod
-    def _choose_file(directory, current):
+    def _choose_file(self, directory, current):
         # A native Windows chooser is optional convenience; manual paths always work.
         try:
             import tkinter as tk
@@ -183,9 +201,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             root.attributes('-topmost', True)
             if directory:
-                return filedialog.askdirectory(parent=root, initialdir=current if Path(current).is_dir() else str(Path.home()), title='Asset-Ordner wählen') or ''
+                return filedialog.askdirectory(parent=root, initialdir=current if Path(current).is_dir() else str(Path.home()), title='Choose asset folder' if getattr(self.server.controller.settings, 'language', 'de') == 'en' else 'Asset-Ordner wählen') or ''
             return filedialog.askopenfilename(parent=root, initialdir=str(Path(current).parent) if current else str(Path.cwd()),
-                                              filetypes=[('ComfyUI-API-Workflow', '*.json')], title='ComfyUI API-JSON wählen') or ''
+                                              filetypes=[('ComfyUI-API-Workflow', '*.json')], title='Choose ComfyUI API JSON' if getattr(self.server.controller.settings, 'language', 'de') == 'en' else 'ComfyUI API-JSON wählen') or ''
         finally:
             root.destroy()
 
@@ -212,7 +230,7 @@ def _launch_window(url):
 
 def run(open_browser=True, port=0):
     server = DashboardServer(port=port)
-    print('AssetFoundry – lokale Oberfläche: ' + f'http://127.0.0.1:{server.server_port}/')
+    print('3D Asset Generator Batch – lokale Oberfläche: ' + f'http://127.0.0.1:{server.server_port}/')
     print('Zum Beenden in der Oberfläche „Beenden“ wählen oder hier Strg+C drücken.')
     if open_browser:
         _launch_window(server.url)

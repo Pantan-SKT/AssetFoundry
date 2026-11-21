@@ -11,6 +11,7 @@ from io import BytesIO
 from pathlib import Path
 import threading
 import time
+import traceback
 
 from . import __version__
 from .assets import scan
@@ -18,8 +19,9 @@ from .batch import BatchRunner
 from .comfy import ComfyClient
 from .models import Settings, load_settings, save_settings, settings_file
 from .resources import ResourceMonitor, Metrics
-from .state import JobStore
+from .state import JobStore, RunStore
 from .workflow import Workflow
+from .thumbnails import ThumbnailService
 
 BASE = Path(__file__).resolve().parent.parent
 ERROR_STATES = {'fehler', 'ungültige GLB', 'gesperrt', 'unklar', 'bild-geändert', 'ausgabe-fehler', 'zeitlimit'}
@@ -34,6 +36,7 @@ class DashboardController:
         self.settings = settings if settings is not None else self._load_settings()
         self.assets = []
         self.asset_index = {}
+        self.thumbnails = ThumbnailService()
         self.selected: set[str] = set()
         self.store = None
         self.runner: BatchRunner | None = None
@@ -43,6 +46,10 @@ class DashboardController:
         self.recent = deque(maxlen=300)
         self.batch_rels: set[str] = set()
         self.batch_started_at = 0.0
+        self.batch_finished_at = 0.0
+        self.batch_heartbeat_at = 0.0
+        self.batch_outcome = 'none'
+        self._last_heartbeat_saved = 0.0
         self.replace_mode = False
         if not self.settings.workflow_path or not Path(self.settings.workflow_path).is_file():
             for name in ('API.json', 'api.json', 'workflow_api.json'):
@@ -79,6 +86,33 @@ class DashboardController:
         except OSError:
             pass
 
+    def log_exception(self, context: str, exc: BaseException):
+        """Persist a bounded traceback for support dumps without making the UI huge."""
+        self.log(f'{context}: {exc}', 'error')
+        self._save_exception(traceback.format_exc(limit=20))
+
+    def _save_exception(self, trace: str):
+        try:
+            path = settings_file().parent / 'errors.log'
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists() and path.stat().st_size > 2 * 1024 * 1024:
+                path.replace(path.with_suffix('.previous.log'))
+            with path.open('a', encoding='utf-8') as file:
+                file.write(time.strftime('\n=== %Y-%m-%d %H:%M:%S ===\n') + trace[:12000] + '\n')
+        except OSError:
+            pass
+
+    def _save_run(self, now=None):
+        if not self.settings.root or not self.batch_started_at:
+            return
+        now = now or time.time()
+        RunStore(Path(self.settings.root)).save({
+            'started_at': self.batch_started_at, 'ended_at': self.batch_finished_at,
+            'heartbeat_at': now, 'outcome': self.batch_outcome,
+            'rels': sorted(self.batch_rels), 'replace': self.replace_mode})
+        self.batch_heartbeat_at = now
+        self._last_heartbeat_saved = now
+
     @property
     def running(self) -> bool:
         return bool(self.runner and self.runner.running)
@@ -97,10 +131,12 @@ class DashboardController:
             try:
                 result = scan(path)
                 store = JobStore(path)  # damaged state must not be silently replaced
+                last_run = RunStore(path).load()
                 with self.lock:
                     same_root = str(path) == self.settings.root
                     previous = self.selected.copy() if same_root else set()
                     select_defaults = not (self._scanned_once and same_root)
+                    restore_run = not (self._scanned_once and same_root)
                     self.assets = result
                     self.asset_index = {a.rel: a for a in result}
                     self.selected = (previous & set(self.asset_index)) if same_root else set()
@@ -108,11 +144,18 @@ class DashboardController:
                         self.selected = {a.rel for a in result if not a.target.exists() and a.status != 'gesperrt'}
                     self._scanned_once = True
                     self.store = store
+                    if restore_run:
+                        self.batch_rels = set(last_run.get('rels', []))
+                        self.batch_started_at = float(last_run.get('started_at') or 0)
+                        self.batch_finished_at = float(last_run.get('ended_at') or 0)
+                        self.batch_heartbeat_at = float(last_run.get('heartbeat_at') or 0)
+                        self.batch_outcome = str(last_run.get('outcome') or 'none')
+                        self.replace_mode = bool(last_run.get('replace', False))
                     self.settings.root = str(path)
                     save_settings(self.settings)
                 self.log(f'{len(result)} PNGs rekursiv eingelesen · {sum(a.target.exists() for a in result)} GLBs vorhanden.')
             except Exception as exc:
-                self.log('Scan fehlgeschlagen: ' + str(exc), 'error')
+                self.log_exception('Scan fehlgeschlagen', exc)
             finally:
                 with self.lock:
                     self.scanning = False
@@ -164,17 +207,52 @@ class DashboardController:
                        and self._job(rel).status == 'fertig'
                        and self._job(rel).finished >= self.batch_started_at)
             metrics = asdict(self.last_metrics)
+            now = time.time()
+            active = self.running
+            if active and now - self._last_heartbeat_saved >= 10:
+                try:
+                    self._save_run(now)
+                except OSError as exc:
+                    self.log('Laufzeit-Metadaten konnten nicht gespeichert werden: ' + str(exc), 'error')
+            end = self.batch_finished_at or (now if active else self.batch_heartbeat_at)
+            elapsed = max(0, end - self.batch_started_at) if self.batch_started_at else 0
+            active_jobs = []
+            # Current job must be discoverable even if it is hidden by search,
+            # another filter or the 75-row pagination window.
+            if active:
+                for rel in self.batch_rels:
+                    live_job = self._job(rel)
+                    if (live_job and live_job.started and not live_job.finished and
+                            live_job.status in ('hochladen', 'vorbereitet', 'eingereicht', 'läuft')):
+                        active_jobs.append((live_job.started, rel, live_job.status))
+            asset_rows = []
+            for a, status, note in assets:
+                job = self._job(a.rel)
+                job_started = float(job.started or 0) if job else 0
+                job_finished = float(job.finished or 0) if job else 0
+                if job_started and status not in ('vorhanden', 'fertig') and not job_finished and not active:
+                    job_finished = self.batch_finished_at or self.batch_heartbeat_at
+                asset_rows.append({'rel': a.rel, 'status': status, 'note': note,
+                                   'selected': a.rel in self.selected, 'has_glb': a.target.exists(),
+                                   'size': a.source_size, 'mtime_ns': str(a.source_mtime_ns),
+                                   'job_started_at': job_started,
+                                   'job_finished_at': job_finished})
+            active_jobs.sort(key=lambda row: row[0])
+            current_rel = active_jobs[0][1] if active_jobs else ''
+            current_started = active_jobs[0][0] if active_jobs else 0
             return {'version': __version__, 'settings': asdict(self.settings), 'scanning': self.scanning,
-                    'running': self.running, 'connection': self.connection,
+                    'running': active, 'connection': self.connection,
+                    'batch': {'started_at': self.batch_started_at, 'ended_at': self.batch_finished_at,
+                              'heartbeat_at': self.batch_heartbeat_at, 'elapsed_seconds': int(elapsed),
+                              'outcome': ('running' if active else self.batch_outcome),
+                              'current_rel': current_rel, 'current_started_at': current_started},
                     'metrics': metrics, 'error': self.last_error,
                     'counts': {'total': total, 'existing': present, 'missing': total-present,
                                'selected': len(self.selected), 'selected_existing': sum(a.target.exists() for a in self.assets if a.rel in self.selected),
                                'selected_missing': sum(not a.target.exists() for a in self.assets if a.rel in self.selected), 'blocked': blocked,
                                'batch_total': len(self.batch_rels), 'batch_done': done,
                                'filtered': len(matches)},
-                    'assets': [{'rel': a.rel, 'status': status, 'note': note,
-                                'selected': a.rel in self.selected, 'has_glb': a.target.exists(),
-                                'size': a.source_size} for a, status, note in assets],
+                    'assets': asset_rows,
                     'page': page, 'page_size': page_size,
                     'logs': list(self.recent)[-90:]}
 
@@ -241,6 +319,21 @@ class DashboardController:
         self.log('Leistungseinstellungen gespeichert · Cooldown ' + f'{s.cooldown_seconds:g} s')
         return {'ok': True}
 
+    def update_language(self, language: str):
+        """Update the UI preference without touching engine settings or active jobs.
+
+        Safe to call while a batch is running; a language switch cannot alter
+        workflow selection, the job queue or the saved asset directory.
+        """
+        if not isinstance(language, str) or language not in ('de', 'en'):
+            raise ValueError('Unsupported interface language (de/en).')
+        with self.lock:
+            from dataclasses import replace
+            next_settings = replace(self.settings, language=language)
+            save_settings(next_settings)
+            self.settings = next_settings
+        return {'language': language}
+
     def inspect_workflow(self, path: str):
         workflow = Workflow(path)
         images, outputs = workflow.image_options(), workflow.output_options()
@@ -276,13 +369,24 @@ class DashboardController:
                 self.log('ComfyUI-Verbindung erfolgreich: ' + url)
             except Exception as exc:
                 with self.lock: self.connection = 'offline'
-                self.log('ComfyUI nicht erreichbar: ' + str(exc), 'error')
+                self.log_exception('ComfyUI nicht erreichbar', exc)
         threading.Thread(target=worker, name='assetfoundry-connect', daemon=True).start()
         return {'accepted': True}
 
     def _notify(self, kind, message):
-        self.log(message, 'error' if kind == 'error' else 'info')
+        if kind != 'exception':
+            self.log(message, 'error' if kind == 'error' else 'info')
+        if kind == 'exception':
+            self._save_exception(message)
+            return
         if kind == 'finished':
+            with self.lock:
+                self.batch_finished_at = time.time()
+                self.batch_outcome = 'paused' if self.runner and self.runner.stop.is_set() else 'completed'
+                try:
+                    self._save_run(self.batch_finished_at)
+                except OSError as exc:
+                    self.log('Batch-Zeitdatei: ' + str(exc), 'error')
             # Scan again only when the worker has actually stopped (race-safe).
             def rescan():
                 for _ in range(100):
@@ -308,7 +412,13 @@ class DashboardController:
             self.runner = runner
             self.batch_rels = set(rels)
             self.batch_started_at = time.time()
+            self.batch_finished_at = 0.0
+            self.batch_outcome = 'running'
             self.replace_mode = replace
+            try:
+                self._save_run(self.batch_started_at)
+            except OSError as exc:
+                self.log('Batch-Zeitdatei konnte nicht gespeichert werden: ' + str(exc), 'error')
         self.log(f'Batch gestartet: {len(rels)} ausgewählt · ' + ('Überschreiben bestätigt' if replace else 'Bestehende GLBs überspringen'))
         return {'accepted': True}
 
@@ -328,6 +438,21 @@ class DashboardController:
             self.store = runner.store
         self.log('Ausgewählte Jobs wurden explizit zurückgesetzt (GLBs nicht gelöscht).')
         return {'ok': True}
+
+    def thumbnail(self, rel: str) -> tuple[bytes, str]:
+        """Return a small PNG only for an exact, currently scanned asset.
+
+        No caller-provided filesystem paths are accepted.
+        """
+        with self.lock:
+            asset = self.asset_index.get(rel)
+            if not asset:
+                raise FileNotFoundError('Asset nicht in der aktuellen Liste.')
+            path = asset.image
+            root = Path(self.settings.root).resolve()
+        if path.is_symlink() or not path.resolve().is_relative_to(root):
+            raise FileNotFoundError('PNG nicht verfügbar.')
+        return self.thumbnails.get(path)
 
     def preview(self, rel: str) -> tuple[bytes, str]:
         with self.lock:
@@ -364,8 +489,16 @@ class DashboardController:
                 sample = monitor.sample()
                 with self.lock: self.last_metrics = sample
             except Exception as exc:
-                self.log('Systemmonitoring: ' + str(exc), 'error')
+                self.log_exception('Systemmonitoring', exc)
             self.closed.wait(2.5)
+
+    def diagnostics(self, include_paths=False) -> bytes:
+        from .diagnostics import build_diagnostics
+        if not isinstance(include_paths, bool):
+            raise ValueError('include_paths muss Boolean sein.')
+        data = build_diagnostics(self, include_paths=include_paths)
+        self.log('Fehler- und Diagnose-Dump erstellt (' + ('mit' if include_paths else 'ohne') + ' absolute Dateipfade).')
+        return data
 
     def close(self):
         self.closed.set()

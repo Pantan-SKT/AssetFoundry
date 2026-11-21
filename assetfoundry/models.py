@@ -10,6 +10,7 @@ import tempfile
 @dataclass
 class Settings:
     root: str = ''
+    language: str = 'de'
     comfy_url: str = 'http://127.0.0.1:8188'
     workflow_path: str = ''
     image_node: str = ''
@@ -29,6 +30,8 @@ class Settings:
     backup_on_replace: bool = True
 
     def validate(self):
+        if self.language not in ('de', 'en'):
+            raise ValueError('Unsupported interface language (de/en).')
         from urllib.parse import urlparse
         u = urlparse(self.comfy_url.strip())
         if (u.scheme != 'http' or u.hostname not in ('localhost', '127.0.0.1', '::1')

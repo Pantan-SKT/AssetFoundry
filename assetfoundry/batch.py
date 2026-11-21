@@ -1,6 +1,8 @@
 """Serielle Batch-Engine mit Wiederaufnahme, Payload-Fingerprints und Soft-Pause."""
 from __future__ import annotations
 import threading
+import json
+import traceback
 import time
 import uuid
 from pathlib import Path
@@ -70,10 +72,17 @@ class BatchRunner:
                 job.fingerprint = ''
                 job.message = ''
                 job.replace = False
+                job.started = 0.0
+                job.finished = 0.0
         self.store.save()
         self.notify('refresh', 'Zurückgesetzte Jobs können erneut gestartet werden.')
 
     def _update(self, job: Job, status: str, message: str = ''):
+        if status in ('hochladen', 'vorbereitet', 'eingereicht', 'läuft'):
+            job.finished = 0.0
+        elif status in ('fertig', 'fehler', 'unklar', 'zeitlimit', 'ausgabe-fehler', 'bild-geändert'):
+            if not job.finished:
+                job.finished = time.time()
         job.status = status
         job.message = message
         self.store.put(job)
@@ -84,6 +93,7 @@ class BatchRunner:
             with FolderLock(self.root):
                 self._process(rels, replace)
         except Exception as exc:
+            self.notify('exception', traceback.format_exc(limit=20))
             self.notify('error', f'Batch abgebrochen: {exc}')
         finally:
             self.notify('finished', 'Batch beendet oder pausiert.')
@@ -191,6 +201,7 @@ class BatchRunner:
                     self._update(job, 'ausgabe-fehler', str(exc))
                 self.notify('error', f'Dateikonflikt bei {rel}: {exc}')
             except Exception as exc:
+                self.notify('exception', traceback.format_exc(limit=20))
                 job = self.store.jobs.get(rel)
                 if job:
                     # Wenn ComfyUI schon einen Auftrag hat, bleibt seine ID für die Wiederaufnahme erhalten.
@@ -213,8 +224,12 @@ class BatchRunner:
             if status == 'done':
                 return item
             if status == 'error':
-                detail = str(item.get('status', {}).get('messages', ''))[:350]
-                self._update(job, 'fehler', 'ComfyUI-Fehler: ' + detail)
+                messages = (item or {}).get('status', {}).get('messages', '')
+                detail = json.dumps(messages, ensure_ascii=False, default=str)[:10000]
+                # Keep node-level ComfyUI errors for the downloadable diagnostics;
+                # limit the short job status to keep the dashboard responsive.
+                self.notify('exception', 'ComfyUI-Auftrag ' + job.prompt_id + ' fehlgeschlagen\n' + detail)
+                self._update(job, 'fehler', 'ComfyUI-Fehler: ' + detail[:450])
                 return None
             if status == 'unknown':
                 if unknown_since is None:

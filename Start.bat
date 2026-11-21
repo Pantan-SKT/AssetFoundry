@@ -23,11 +23,14 @@ if not exist ".venv\Scripts\python.exe" (
  %PY% -m venv ".venv"
  if errorlevel 1 goto :fail
 )
-if not exist ".venv\.extras-attempted" (
+if not exist ".venv\.extras-1.1.2-ok" (
  echo [AssetFoundry] Installiere optionale Monitoring-/Vorschau-Pakete ...
  ".venv\Scripts\python.exe" -m pip install --disable-pip-version-check --timeout 8 --retries 1 -r requirements.txt
- if errorlevel 1 echo [HINWEIS] Extras nicht verfuegbar. Die Oberflaeche startet trotzdem lokal.
- type nul > ".venv\.extras-attempted"
+ if errorlevel 1 (
+  echo [HINWEIS] Thumbnail-Paket Pillow nicht installiert. Spaeter Extras_Installieren.bat ausfuehren.
+ ) else (
+  type nul > ".venv\.extras-1.1.2-ok"
+ )
 )
 echo.
 echo [AssetFoundry] Starte lokales App-Fenster ...

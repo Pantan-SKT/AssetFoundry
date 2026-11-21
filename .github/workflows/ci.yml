@@ -1,4 +1,4 @@
-name: AssetFoundry CI
+name: 3D Asset Generator Batch CI
 on:
   push:
   pull_request:

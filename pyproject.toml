@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "assetfoundry-local"
-version = "1.1.0"
+version = "1.2.0"
 description = "Local PNG-to-GLB production pipeline with a secure browser-based desktop UI and ComfyUI backend"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,4 +29,4 @@ assetfoundry = "assetfoundry.webapp:run"
 include = ["assetfoundry*"]
 
 [tool.setuptools.package-data]
-assetfoundry = ["frontend/*.html", "frontend/*.css", "frontend/*.js"]
+assetfoundry = ["frontend/*.html", "frontend/*.css", "frontend/*.js", "frontend/locales/*.json"]

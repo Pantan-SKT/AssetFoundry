@@ -10,3 +10,16 @@
 - Bestehende GLB-Dateien werden erst nach vollständiger Validierung ersetzt; optionale Backups schützen vor unbeabsichtigten Änderungen. Bei unklaren ComfyUI-Aufträgen keine automatische Doppelgenerierung.
 - Native Dateidialoge und die manuelle Wahl lokaler Ordner erlauben bewusst den Zugriff auf Dateien des **angemeldeten Benutzers**. AssetFoundry daher nur aus vertrauenswürdigen Paketen starten.
 - Vor öffentlicher Veröffentlichung des Repositories sicherstellen, dass `workflows/API.json`, `.assetfoundry/`, `.venv/`, lokale Assets und Logdateien nicht eingecheckt sind.
+
+## Support- und Fehler-Dump
+
+- ZIP-Export ausschliesslich durch eine aktive, lokal authentifizierte Benutzeraktion als `POST /api/diagnostics`. Es gibt keinen öffentlichen oder automatischen Upload.
+- **Standard:** absolute Ordnerpfade werden maskiert. Dateinamen und relative Pfade in Fehlermeldungen können sichtbar bleiben; das ZIP vor dem Weitergeben prüfen.
+- Auch im vollständigen Pfadmodus werden schlüsselartige Werte (`token`, `api_key`, `password`, `secret`, `authorization`) in Textfeldern maskiert; ein lokaler Export ist dennoch keine Garantie vollständiger Anonymisierung.
+- Im Export fehlen ausdrücklich PNG/GLB-Dateien, das eigentliche `API.json`, Einstellungen-Dateien im Original und die Sitzungstoken der App.
+- Begrenzte Protokollmengen (je maximal 700 KB und 10'000 Jobs) schützen vor übergrossen Support-ZIPs. Fehler-Logs liegen unter `%LOCALAPPDATA%\AssetFoundry\errors.log`.
+- Vor dem Teilen in einer öffentlichen GitHub-Issue private Hinweise in relativen Asset-Namen, Logs und Stacktraces kontrollieren.
+
+## Thumbnails (1.1.2)
+
+Die Miniaturansicht ist nur mit Sitzungstoken für im Asset-Scan vorhandene, reguläre Dateien erreichbar. Die Komprimierung verwendet Pillow, begrenzt die Eingabebildfläche auf 64 Millionen Pixel und produziert nur max. 128 × 128 Pixel. Die Original-PNGs werden unverändert belassen und nicht in Diagnosearchive aufgenommen. Pillow fehlt: grosse Bilder werden bewusst nicht als Vorschau im Original übertragen.

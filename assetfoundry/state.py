@@ -63,3 +63,26 @@ class JobStore:
     def put(self, job: Job):
         self.jobs[job.rel] = job
         self.save()
+
+
+class RunStore:
+    """Small crash-resistant timeline of the most recent batch in an asset tree.
+
+    Kept separately from jobs.json so previously installed versions can still read
+    their original job files. User files are never removed or rewritten here.
+    """
+    def __init__(self, root: Path):
+        self.path = Path(root).resolve() / '.assetfoundry' / 'last-run.json'
+
+    def load(self):
+        if not self.path.is_file():
+            return {}
+        raw = json.loads(self.path.read_text(encoding='utf-8'))
+        if not isinstance(raw, dict) or raw.get('version') != 1:
+            raise ValueError('Unbekannte oder beschädigte Batch-Zeitdatei.')
+        if not isinstance(raw.get('rels', []), list):
+            raise ValueError('Beschädigte Batch-Assetliste.')
+        return raw
+
+    def save(self, data: dict):
+        atomic_json(self.path, {'version': 1, **data})
